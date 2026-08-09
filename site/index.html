@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Акаки Сирбиладзе — Уроки танцев</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<main class="screen" id="mainScreen">
+  <div class="card">
+    <div class="photo-wrap">
+      <img src="photo.jpg" alt="Акаки Сирбиладзе" class="photo">
+    </div>
+    <h1 class="name">Акаки Сирбиладзе</h1>
+    <p class="subtitle">Уроки танцев</p>
+
+    <div class="contacts">
+      <a class="contact-row" href="tel:+995599393079">
+        <span class="icon">📞</span>
+        <span>+995 599 39 30 79</span>
+      </a>
+      <a class="contact-row" href="https://t.me/geo12052000" target="_blank" rel="noopener">
+        <span class="icon">✈️</span>
+        <span>@geo12052000</span>
+      </a>
+      <a class="contact-row" href="https://www.instagram.com/aki_sirbiladze?igsh=MTNnNzhzcHR6MG41bA%3D%3D&utm_source=qr" target="_blank" rel="noopener">
+        <span class="icon">📷</span>
+        <span>Instagram</span>
+      </a>
+      <div class="contact-row">
+        <span class="icon">📍</span>
+        <span>Ilia Chavchavadze 37</span>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="bookBtn">Записаться на урок</button>
+      <a class="btn btn-secondary" href="https://t.me/geo12052000" target="_blank" rel="noopener">Открыть чат</a>
+    </div>
+  </div>
+</main>
+
+<div class="modal-overlay" id="calendarModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Выберите день и время</h2>
+      <button class="close-btn" id="closeModal">✕</button>
+    </div>
+
+    <div class="week-nav">
+      <button class="week-nav-btn" id="prevWeek">‹</button>
+      <span class="week-label" id="weekLabel"></span>
+      <button class="week-nav-btn" id="nextWeek">›</button>
+    </div>
+
+    <div class="days-row" id="daysRow"></div>
+
+    <div class="time-section">
+      <h3 id="timeTitle">Свободное время</h3>
+      <div class="times-grid" id="timesGrid"></div>
+    </div>
+
+    <div class="name-section">
+      <h3>Ваше имя</h3>
+      <input type="text" id="nameInput" class="name-input" placeholder="Введите имя" maxlength="50">
+    </div>
+
+    <button class="btn btn-primary confirm-btn" id="confirmBtn" disabled>Подтвердить запись</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
