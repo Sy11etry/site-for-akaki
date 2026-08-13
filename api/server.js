@@ -50,7 +50,10 @@ function getPublicSlots(dateStr) {
 }
 
 function book(dateStr, hour, name) {
-  const existing = db.prepare('select status from schedule where date = ? and hour = ?').get(dateStr, hour);
+  const existing = db.prepare('select status, client_name from schedule where date = ? and hour = ?').get(dateStr, hour);
+  // A retried request (the client timed out on a request that did land)
+  // must not read as a conflict.
+  if (existing && existing.status === 'booked' && existing.client_name === name) return true;
   if (!existing || existing.status !== 'free') return false;
   const changed = db
     .prepare("update schedule set status = 'booked', client_name = ?, updated_at = ? where date = ? and hour = ? and status = 'free'")

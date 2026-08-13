@@ -19,6 +19,17 @@ const timeTitle = document.getElementById('timeTitle');
 const confirmBtn = document.getElementById('confirmBtn');
 const nameInput = document.getElementById('nameInput');
 
+// The API lives on a home server, so the first connection can be slow to
+// establish. Give it a bounded wait and one retry instead of hanging.
+async function apiFetch(path, options = {}, attempt = 0) {
+  try {
+    return await fetch(`${API_BASE}${path}`, { ...options, signal: AbortSignal.timeout(8000) });
+  } catch (err) {
+    if (attempt === 0) return apiFetch(path, options, 1);
+    throw err;
+  }
+}
+
 function getMonday(d) {
   const date = new Date(d);
   const day = date.getDay();
@@ -91,7 +102,7 @@ async function renderTimes() {
 
   let slots;
   try {
-    const res = await fetch(`${API_BASE}/api/slots?date=${dateStr}`);
+    const res = await apiFetch(`/api/slots?date=${dateStr}`);
     if (!res.ok) throw new Error('bad response');
     slots = (await res.json()).slots;
   } catch {
@@ -167,7 +178,7 @@ confirmBtn.addEventListener('click', async () => {
 
   let res;
   try {
-    res = await fetch(`${API_BASE}/api/book`, {
+    res = await apiFetch('/api/book', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date: dateStr, hour: selectedTime, name }),
