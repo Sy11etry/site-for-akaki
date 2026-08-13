@@ -169,6 +169,14 @@ bot.action(/^h:(.+):(\d+)$/, async (ctx) => {
   await sendDay(ctx, dateStr, true);
 });
 
+bot.catch((err, ctx) => {
+  console.error('Bot error for update', ctx.update.update_id, err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection:', err);
+});
+
 bot.launch();
 console.log('Bot started');
 
