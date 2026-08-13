@@ -1,10 +1,7 @@
-const SUPABASE_URL = 'https://qcawrntvxxedibbfqwyo.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFjYXdybnR2eHhlZGliYmZxd3lvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyNzE1MTksImV4cCI6MjEwMTg0NzUxOX0.Xb20oUByKJdpeAPtQMP8IdYL9MoIoEzCmM6ShUANJW0';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const API_BASE = 'https://corei5.tail3a8354.ts.net';
 
 const DOW = ['ВС', 'ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ'];
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-const HOURS = Array.from({ length: 14 }, (_, i) => 9 + i); // 9..22
 
 let weekStart = getMonday(new Date());
 let selectedDate = null;
@@ -36,7 +33,8 @@ function isSameDay(a, b) {
 }
 
 function fmtDate(d) {
-  return d.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function renderWeek() {
@@ -62,8 +60,7 @@ function renderWeek() {
     if (isSameDay(d, today)) btn.classList.add('today');
     if (selectedDate && isSameDay(d, selectedDate)) btn.classList.add('selected');
 
-    const isPast = d < today;
-    if (isPast) btn.disabled = true;
+    if (d < today) btn.disabled = true;
 
     btn.innerHTML = `<span class="dow">${DOW[d.getDay()]}</span><span class="num">${d.getDate()}</span>`;
     btn.addEventListener('click', () => {
@@ -92,20 +89,17 @@ async function renderTimes() {
   timeTitle.textContent = `Свободное время — ${dateLabel}`;
   timesGrid.innerHTML = '<div class="empty-times">Загрузка…</div>';
 
-  const { data, error } = await sb
-    .from('schedule')
-    .select('hour, status')
-    .eq('date', dateStr);
-
-  if (error) {
-    timesGrid.innerHTML = '<div class="empty-times">Ошибка загрузки</div>';
+  let slots;
+  try {
+    const res = await fetch(`${API_BASE}/api/slots?date=${dateStr}`);
+    if (!res.ok) throw new Error('bad response');
+    slots = (await res.json()).slots;
+  } catch {
+    timesGrid.innerHTML = '<div class="empty-times">Не удалось загрузить расписание</div>';
     return;
   }
 
-  const busyHours = new Set(
-    data.filter(r => r.status === 'busy' || r.status === 'booked').map(r => r.hour)
-  );
-  const freeHours = HOURS.filter(h => !busyHours.has(h));
+  const freeHours = slots.filter((s) => s.free).map((s) => s.hour);
 
   timesGrid.innerHTML = '';
 
@@ -114,12 +108,11 @@ async function renderTimes() {
     return;
   }
 
-  freeHours.forEach(h => {
-    const label = `${String(h).padStart(2, '0')}:00`;
+  freeHours.forEach((h) => {
     const btn = document.createElement('button');
     btn.className = 'time-slot';
     if (selectedTime === h) btn.classList.add('selected');
-    btn.textContent = label;
+    btn.textContent = `${String(h).padStart(2, '0')}:00`;
     btn.addEventListener('click', () => {
       selectedTime = h;
       renderTimes();
@@ -130,8 +123,7 @@ async function renderTimes() {
 }
 
 function updateConfirm() {
-  const nameOk = nameInput.value.trim().length > 0;
-  confirmBtn.disabled = !(selectedDate && selectedTime !== null && nameOk);
+  confirmBtn.disabled = !(selectedDate && selectedTime !== null && nameInput.value.trim());
 }
 
 nameInput.addEventListener('input', updateConfirm);
@@ -173,33 +165,32 @@ confirmBtn.addEventListener('click', async () => {
 
   const dateStr = fmtDate(selectedDate);
 
-  // Проверяем, что слот всё ещё свободен, перед записью
-  const { data: existing } = await sb
-    .from('schedule')
-    .select('status')
-    .eq('date', dateStr)
-    .eq('hour', selectedTime)
-    .maybeSingle();
-
-  if (existing && (existing.status === 'busy' || existing.status === 'booked')) {
-    alert('Извините, это время уже занято. Выберите другое.');
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api/book`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: dateStr, hour: selectedTime, name }),
+    });
+  } catch {
     confirmBtn.textContent = 'Подтвердить запись';
+    updateConfirm();
+    alert('Не удалось связаться с сервером. Попробуйте ещё раз или напишите в чат.');
+    return;
+  }
+
+  confirmBtn.textContent = 'Подтвердить запись';
+
+  if (res.status === 409) {
+    alert('Извините, это время уже заняли. Выберите другое.');
     selectedTime = null;
     renderTimes();
     updateConfirm();
     return;
   }
 
-  const { error } = await sb
-    .from('schedule')
-    .upsert(
-      { date: dateStr, hour: selectedTime, status: 'booked', client_name: name, updated_at: new Date().toISOString() },
-      { onConflict: 'date,hour' }
-    );
-
-  confirmBtn.textContent = 'Подтвердить запись';
-
-  if (error) {
+  if (!res.ok) {
+    updateConfirm();
     alert('Не удалось создать запись. Попробуйте ещё раз или напишите в чат.');
     return;
   }

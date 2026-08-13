@@ -1,11 +1,10 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
-const { createClient } = require('@supabase/supabase-js');
+const { openDb, HOURS } = require('../api/db');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+const db = openDb();
 
-const HOURS = Array.from({ length: 14 }, (_, i) => 9 + i); // 9..22
 const DOW = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
@@ -19,7 +18,8 @@ function getMonday(d) {
 }
 
 function fmtDate(d) {
-  return d.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function fmtDayLabel(d) {
@@ -41,12 +41,8 @@ bot.command('clear', (ctx) => {
 
 bot.action('clear:confirm', async (ctx) => {
   await ctx.answerCbQuery();
-  const { error } = await supabase.from('schedule').delete().gte('id', 0);
-  if (error) {
-    await ctx.editMessageText('Не получилось очистить: ' + error.message);
-    return;
-  }
-  await ctx.editMessageText('Расписание снесено. Все слоты снова свободны.');
+  db.prepare('delete from schedule').run();
+  await ctx.editMessageText('Расписание снесено. Все слоты снова закрыты.');
 });
 
 bot.action('clear:cancel', async (ctx) => {
@@ -80,29 +76,26 @@ async function sendWeek(ctx, monday, edit = false) {
   }
 }
 
-async function getDaySlots(dateStr) {
-  const { data, error } = await supabase
-    .from('schedule')
-    .select('hour, status, client_name')
-    .eq('date', dateStr);
-  if (error) throw error;
+function getDaySlots(dateStr) {
+  const rows = db.prepare('select hour, status, client_name from schedule where date = ?').all(dateStr);
   const map = {};
-  for (const row of data) map[row.hour] = row;
+  for (const row of rows) map[row.hour] = row;
   return map;
 }
 
 function statusIcon(status) {
-  if (status === 'busy') return '❌';
+  if (status === 'free') return '✅';
   if (status === 'booked') return '👤';
-  return '✅';
+  return '❌';
 }
 
-async function dayKeyboard(dateStr) {
-  const slots = await getDaySlots(dateStr);
+function dayKeyboard(dateStr) {
+  const slots = getDaySlots(dateStr);
   const rows = [];
   for (const h of HOURS) {
     const slot = slots[h];
-    const status = slot ? slot.status : 'free';
+    // No row means the hour was never opened, so it stays closed.
+    const status = slot ? slot.status : 'busy';
     const label = status === 'booked' && slot.client_name
       ? `${h}:00 👤 ${slot.client_name}`
       : `${h}:00 ${statusIcon(status)}`;
@@ -115,7 +108,7 @@ async function dayKeyboard(dateStr) {
 async function sendDay(ctx, dateStr, edit = false) {
   const d = new Date(dateStr + 'T00:00:00');
   const text = `${fmtDayLabel(d)}\n\n✅ свободно · ❌ занято · 👤 записан\n\nТыкаем час:`;
-  const kb = await dayKeyboard(dateStr);
+  const kb = dayKeyboard(dateStr);
   if (edit) {
     await ctx.editMessageText(text, kb);
   } else {
@@ -145,27 +138,27 @@ bot.action(/^h:(.+):(\d+)$/, async (ctx) => {
   const dateStr = ctx.match[1];
   const hour = parseInt(ctx.match[2], 10);
 
-  const { data: existing } = await supabase
-    .from('schedule')
-    .select('status')
-    .eq('date', dateStr)
-    .eq('hour', hour)
-    .maybeSingle();
-
-  const current = existing ? existing.status : 'free';
+  const existing = db.prepare('select status, client_name from schedule where date = ? and hour = ?').get(dateStr, hour);
+  const current = existing ? existing.status : 'busy';
 
   if (current === 'booked') {
-    await ctx.answerCbQuery('Слот занят. Свободи если надо.', { show_alert: true });
+    const who = existing.client_name || 'клиент';
+    db.prepare("update schedule set status = 'free', client_name = null, updated_at = ? where date = ? and hour = ?")
+      .run(new Date().toISOString(), dateStr, hour);
+    await ctx.answerCbQuery(`Запись отменена (${who}), слот снова свободен`, { show_alert: true });
+    await sendDay(ctx, dateStr, true);
     return;
   }
 
-  const next = current === 'free' ? 'busy' : 'free';
+  const next = current === 'busy' ? 'free' : 'busy';
 
-  await supabase
-    .from('schedule')
-    .upsert({ date: dateStr, hour, status: next, client_name: null, updated_at: new Date().toISOString() }, { onConflict: 'date,hour' });
+  db.prepare(`
+    insert into schedule (date, hour, status, client_name, updated_at)
+    values (?, ?, ?, null, ?)
+    on conflict(date, hour) do update set status = excluded.status, client_name = null, updated_at = excluded.updated_at
+  `).run(dateStr, hour, next, new Date().toISOString());
 
-  await ctx.answerCbQuery(next === 'busy' ? '❌ занято' : '✅ свободно');
+  await ctx.answerCbQuery(next === 'free' ? '✅ свободно' : '❌ занято');
   await sendDay(ctx, dateStr, true);
 });
 
